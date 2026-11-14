@@ -1,0 +1,6 @@
+{
+  "name": "Instagram Unfollow Manager",
+  "description": "Professional local-first Instagram unfollow manager that identifies non-followers from Instagram ZIP/JSON/HTML exports, organizes batch unfollowing tasks, and maintains a permanent IndexedDB completion history.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
