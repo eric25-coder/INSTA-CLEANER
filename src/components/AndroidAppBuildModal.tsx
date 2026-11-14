@@ -45,6 +45,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
 
       - name: Setup Java JDK 21 (Temurin)
         uses: actions/setup-java@v4
@@ -55,9 +56,14 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Android SDK Licenses
+        run: yes | sdkmanager --licenses || true
+
       - name: Install NPM Dependencies & Build Web Assets
+        working-directory: .
         run: |
-          npm install
+          npm ci --legacy-peer-deps
+          npm run lint
           npm run build
 
       - name: Initialize & Sync Capacitor Android Platform

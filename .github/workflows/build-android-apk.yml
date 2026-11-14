@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       build_type:
-        description: 'Android Build Variant (debug or release)'
+        description: 'Android Build Variant (debug, release, or both)'
         required: true
-        default: 'debug'
+        default: 'both'
         type: choice
         options:
           - debug
@@ -30,7 +30,7 @@ jobs:
   build-android:
     name: Build Native Android APK & Web Bundle
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Checkout Repository
@@ -41,6 +41,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
 
       - name: Setup Java JDK 21 (Temurin)
         uses: actions/setup-java@v4
@@ -51,23 +52,31 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Android SDK Licenses
+        run: yes | sdkmanager --licenses || true
+
       - name: Install NPM Dependencies
-        run: npm install
+        working-directory: .
+        run: npm ci --legacy-peer-deps
 
       - name: Typecheck & Lint Application
+        working-directory: .
         run: npm run lint
 
       - name: Build Production Web Assets (Vite + PWA)
+        working-directory: .
         run: npm run build
 
       - name: Initialize & Sync Capacitor Android Platform
+        working-directory: .
         run: |
           if [ ! -d "android" ]; then
             npx cap add android
           fi
           npx cap sync android
 
-      - name: Configure AndroidManifest.xml Instagram Deep-Link Queries (Android 11+ / Redmi / HyperOS)
+      - name: Ensure AndroidManifest.xml Instagram Deep-Link Queries (Android 11+ / Redmi / HyperOS)
+        working-directory: .
         run: |
           MANIFEST_FILE="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST_FILE" ] && ! grep -q "com.instagram.android" "$MANIFEST_FILE"; then
@@ -87,7 +96,6 @@ jobs:
         run: ./gradlew assembleRelease bundleRelease --no-daemon
 
       - name: Sign Release APK (Optional - Uses GitHub Secrets if Configured)
-        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -95,21 +103,27 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         working-directory: android
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release-key.jks
-          BUILD_TOOLS_DIR="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n 1)"
-          "$BUILD_TOOLS_DIR/zipalign" -v -p 4 \
-            app/build/outputs/apk/release/app-release-unsigned.apk \
-            app/build/outputs/apk/release/Insta-Cleaner-Release-Aligned.apk
-          "$BUILD_TOOLS_DIR/apksigner" sign \
-            --ks release-key.jks \
-            --ks-key-alias "$ANDROID_KEY_ALIAS" \
-            --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
-            --key-pass "pass:$ANDROID_KEY_PASSWORD" \
-            --out app/build/outputs/apk/release/Insta-Cleaner-Release-Signed.apk \
-            app/build/outputs/apk/release/Insta-Cleaner-Release-Aligned.apk
-          rm -f release-key.jks
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Signing Release APK with provided keystore secret..."
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release-key.jks
+            BUILD_TOOLS_DIR="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n 1)"
+            "$BUILD_TOOLS_DIR/zipalign" -v -p 4 \
+              app/build/outputs/apk/release/app-release-unsigned.apk \
+              app/build/outputs/apk/release/Insta-Cleaner-Release-Aligned.apk
+            "$BUILD_TOOLS_DIR/apksigner" sign \
+              --ks release-key.jks \
+              --ks-key-alias "$ANDROID_KEY_ALIAS" \
+              --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
+              --key-pass "pass:$ANDROID_KEY_PASSWORD" \
+              --out app/build/outputs/apk/release/Insta-Cleaner-Release-Signed.apk \
+              app/build/outputs/apk/release/Insta-Cleaner-Release-Aligned.apk
+            rm -f release-key.jks
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret configured; keeping debug APK and unsigned release artifacts."
+          fi
 
-      - name: Prepare Named APK Artifacts
+      - name: Prepare Named APK & AAB Artifacts
+        working-directory: .
         run: |
           mkdir -p artifacts/apk
           cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/apk/Insta-Cleaner-v3.0.0-debug.apk
