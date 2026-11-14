@@ -40,45 +40,53 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'cmdline-tools;latest platform-tools'
+
+      - name: Install Required Android SDK Packages
+        run: |
+          ANDROID_SDK_DIR="\${ANDROID_HOME:-\${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="\$ANDROID_SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+          yes | "\$SDKMANAGER" --sdk_root="\$ANDROID_SDK_DIR" --licenses > /dev/null || true
+          "\$SDKMANAGER" --sdk_root="\$ANDROID_SDK_DIR" \\
+            "cmdline-tools;latest" \\
+            "platform-tools" \\
+            "platforms;android-36" \\
+            "build-tools;36.0.0"
+
+      - name: Accept Android SDK Licenses
+        run: |
+          ANDROID_SDK_DIR="\${ANDROID_HOME:-\${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          yes | "\$ANDROID_SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --sdk_root="\$ANDROID_SDK_DIR" --licenses > /dev/null || true
+
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: 'package-lock.json'
 
-      - name: Setup Java JDK 21 (Temurin)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK Licenses
-        run: yes | sdkmanager --licenses || true
-
-      - name: Install NPM Dependencies & Build Web Assets
+      - name: Install Project Dependencies & Sync Capacitor Android
         working-directory: .
         run: |
           npm ci --legacy-peer-deps
           npm run lint
           npm run build
-
-      - name: Initialize & Sync Capacitor Android Platform
-        run: |
           if [ ! -d "android" ]; then
             npx cap add android
           fi
           npx cap sync android
 
-      - name: Configure AndroidManifest.xml Instagram Deep-Link Queries
-        run: |
-          MANIFEST_FILE="android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST_FILE" ] && ! grep -q "com.instagram.android" "$MANIFEST_FILE"; then
-            sed -i 's|</manifest>|  <queries>\\n    <package android:name="com.instagram.android" />\\n    <intent>\\n      <action android:name="android.intent.action.VIEW" />\\n      <data android:scheme="instagram" />\\n    </intent>\\n  </queries>\\n</manifest>|g' "$MANIFEST_FILE"
-          fi
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Build Android Debug & Release APK
         working-directory: android
