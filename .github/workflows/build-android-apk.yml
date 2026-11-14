@@ -1,0 +1,137 @@
+name: Build Android APK & AAB (Insta Cleaner)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Android Build Variant (debug or release)'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+          - both
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Build Native Android APK & Web Bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Java JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NPM Dependencies
+        run: npm install
+
+      - name: Typecheck & Lint Application
+        run: npm run lint
+
+      - name: Build Production Web Assets (Vite + PWA)
+        run: npm run build
+
+      - name: Initialize & Sync Capacitor Android Platform
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Configure AndroidManifest.xml Instagram Deep-Link Queries (Android 11+ / Redmi / HyperOS)
+        run: |
+          MANIFEST_FILE="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST_FILE" ] && ! grep -q "com.instagram.android" "$MANIFEST_FILE"; then
+            sed -i 's|</manifest>|  <queries>\n    <package android:name="com.instagram.android" />\n    <intent>\n      <action android:name="android.intent.action.VIEW" />\n      <data android:scheme="instagram" />\n    </intent>\n  </queries>\n</manifest>|g' "$MANIFEST_FILE"
+          fi
+
+      - name: Grant Execute Permission to Gradlew
+        working-directory: android
+        run: chmod +x gradlew
+
+      - name: Build Android Debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Build Android Release Unsigned APK & AAB Bundle
+        working-directory: android
+        run: ./gradlew assembleRelease bundleRelease --no-daemon
+
+      - name: Sign Release APK (Optional - Uses GitHub Secrets if Configured)
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: android
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release-key.jks
+          BUILD_TOOLS_DIR="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n 1)"
+          "$BUILD_TOOLS_DIR/zipalign" -v -p 4 \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            app/build/outputs/apk/release/Insta-Cleaner-Release-Aligned.apk
+          "$BUILD_TOOLS_DIR/apksigner" sign \
+            --ks release-key.jks \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
+            --key-pass "pass:$ANDROID_KEY_PASSWORD" \
+            --out app/build/outputs/apk/release/Insta-Cleaner-Release-Signed.apk \
+            app/build/outputs/apk/release/Insta-Cleaner-Release-Aligned.apk
+          rm -f release-key.jks
+
+      - name: Prepare Named APK Artifacts
+        run: |
+          mkdir -p artifacts/apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk artifacts/apk/Insta-Cleaner-v3.0.0-debug.apk
+          if [ -f "android/app/build/outputs/apk/release/Insta-Cleaner-Release-Signed.apk" ]; then
+            cp android/app/build/outputs/apk/release/Insta-Cleaner-Release-Signed.apk artifacts/apk/Insta-Cleaner-v3.0.0-release-signed.apk
+          elif [ -f "android/app/build/outputs/apk/release/app-release-unsigned.apk" ]; then
+            cp android/app/build/outputs/apk/release/app-release-unsigned.apk artifacts/apk/Insta-Cleaner-v3.0.0-release-unsigned.apk
+          fi
+          if [ -f "android/app/build/outputs/bundle/release/app-release.aab" ]; then
+            cp android/app/build/outputs/bundle/release/app-release.aab artifacts/apk/Insta-Cleaner-v3.0.0-release.aab
+          fi
+
+      - name: Upload Android APK & AAB Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Insta-Cleaner-Android-Builds
+          path: artifacts/apk/*
+          retention-days: 30
+
+      - name: Publish APK to GitHub Releases (On Tag Push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/apk/*
+          generate_release_notes: true

@@ -23,6 +23,11 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+import {
+  AndroidAppBuildModal,
+  OfflineIndicator,
+  PWAInstallButton,
+} from './components/AndroidAppBuildModal';
 import { AnalyticsView } from './components/AnalyticsView';
 import { BatchUnfollowView } from './components/BatchUnfollowView';
 import { ConnectionsDirectoryView } from './components/ConnectionsDirectoryView';
@@ -129,6 +134,7 @@ export default function App() {
   const [showNotificationsPopover, setShowNotificationsPopover] =
     useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [showAndroidBuildModal, setShowAndroidBuildModal] = useState(false);
 
   // Direct Instagram Mobile App Integration State
   const [fallbackLinksModal, setFallbackLinksModal] =
@@ -1265,12 +1271,35 @@ export default function App() {
             </div>
           </button>
 
+          {/* Android APK & GitHub Actions CI/CD Button */}
+          <button
+            onClick={() => {
+              setShowAndroidBuildModal(true);
+              setMobileMenuOpen(false);
+            }}
+            className="w-full text-left p-3 rounded-2xl border border-violet-500/30 bg-violet-950/25 hover:bg-violet-950/40 transition-colors flex items-center justify-between gap-2.5 cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#8B5CF6] to-[#EC4899] flex items-center justify-center text-white shrink-0">
+                <Smartphone className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-violet-300 truncate">
+                  Android App & CI/CD
+                </div>
+                <div className="text-[10px] text-slate-400 truncate">
+                  APK + GitHub Actions
+                </div>
+              </div>
+            </div>
+          </button>
+
           {/* Storage Status & Application Version */}
           <div className="px-2 space-y-0.5 text-xs text-slate-500 dark:text-[#9CA3AF]">
             <div className="font-medium text-slate-700 dark:text-slate-300">
               Storage: {storageSizeDisplay}
             </div>
-            <div className="font-mono text-[11px]">v3.0.0</div>
+            <div className="font-mono text-[11px]">v3.0.0 • Android Ready</div>
           </div>
 
           {/* User Profile / Settings Menu */}
@@ -1436,12 +1465,17 @@ export default function App() {
             </div>
           </div>
 
-          {/* Right: Data Synchronization Status, Notifications, Theme Toggle */}
-          <div className="flex items-center gap-3 sm:gap-5 shrink-0">
+          {/* Right: Android Install / CI-CD, Data Synchronization Status, Notifications, Theme Toggle */}
+          <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
+            {/* Install Android App / Open APK & GitHub Actions Modal */}
+            <PWAInstallButton
+              onOpenAndroidBuildModal={() => setShowAndroidBuildModal(true)}
+            />
+
             {/* All Data Saved Status Indicator */}
             <button
               onClick={() => setActiveTab('import')}
-              className="hidden sm:inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-400 transition-colors cursor-pointer"
+              className="hidden md:inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-emerald-400 transition-colors cursor-pointer"
               title="IndexedDB & Primary ZIP Locked"
             >
               <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
@@ -1450,7 +1484,7 @@ export default function App() {
               <span>All Data Saved</span>
             </button>
 
-            <div className="hidden sm:block h-5 w-px bg-slate-200 dark:bg-white/10" />
+            <div className="hidden md:block h-5 w-px bg-slate-200 dark:bg-white/10" />
 
             {/* Notifications Bell Popover */}
             <div className="relative">
@@ -1842,6 +1876,15 @@ export default function App() {
           setInvalidUsernameErrorModal(null);
         }}
       />
+
+      {/* Android APK & GitHub Actions CI/CD Modal */}
+      <AndroidAppBuildModal
+        isOpen={showAndroidBuildModal}
+        onClose={() => setShowAndroidBuildModal(false)}
+      />
+
+      {/* Offline Status Banner */}
+      <OfflineIndicator />
 
       {/* Floating Confirmation Toast */}
       {toastMessage && (
